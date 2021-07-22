@@ -1,0 +1,222 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import sys
+import os
+import math
+import matplotlib
+from pandas import DataFrame, read_csv
+from scipy.optimize import curve_fit
+from scipy.integrate import quad, romb
+from scipy import integrate
+import datetime
+from sympy import symbols, Eq, solve, N
+
+get_ipython().run_line_magic('matplotlib', 'inline')
+
+# print('Python version ' + sys.version)
+# print('Pandas version ' + pd.__version__)
+# print('Matplotlib version ' + matplotlib.__version__)
+
+union2 = pd.read_csv('union2EditedReduced.CSV', encoding = 'utf-8',delimiter=r'\s+', sep=' ')
+SIName =  union2.iloc[:,0]      # Name of the SuperNova
+r_sh   =  union2.iloc[:,1]      # import red_shift data
+mu_obs =  union2.iloc[:,2]      # import distance module data
+mu_obs_error = union2.iloc[:,3] # import the errors in distance module
+
+NNN = len(r_sh)
+# print(NNN)
+
+### Initial conditions
+k_i = 0.001   # initial k
+k_f = 0.01    # final k
+k = k_i
+V_0        = 1
+f_0        = 1 #V_0 / 1.44
+g_0        = 1
+rho_m_0    = 1 #0.31
+
+t = 0.0      # initial time (t stands for z (redshift))
+h = 0.1      # step-size of runge-kutta
+N_S = 10     # number of steps in runge-kutta
+
+x_0 = 1e-10 # 10**-5     # initial phi
+y_0 = 1e-10 # 1.6115e-3  # initial phi-prime
+z_0 = 0.766965           # initial H
+
+
+# define the objective fit function
+def fit_function(x, a, b, c, d, e):
+    return (a * x) + (b * x**2) + (c * x**3) + (d * x**4) + e
+
+# Fitted H(z) function
+def H_z_function(u):
+    return (a * u) + (b * u**2) + (c * u**3) + (d * u**4) + e
+
+def Runge_Kutta_dxdt_dydt_dzdt(t, x, y, z, h):
+    
+    x_p_i, y_p_i, z_p_i = symbols('x_p_i y_p_i z_p_i')
+    
+    numerator_xx   = (z**2) * ((1+t)**2) * z_p_i * x     - 3*(z**2)*(1+t)*x*(1-(z**2)*((1+t)**2)*(x**2))     - (k/V_0) * ((1-(z**2)*((1+t)**2)*(x**2))**(3/2)) * (6*(f_0+3*g_0)*(z**2)-6*g_0*z*z_p_i*(1+t)+V_0)
+    denominator_xx = -(z**2)*((1+t)**2)
+    
+    numerator_zz   = math.exp(-k*y) * (6*f_0*k*(z**2)*(1+t)*x + V_0/(np.sqrt(1-(z**2)*((1+t)**2)*(x**2))))     + k * math.exp(-k*y) * (2*g_0*(z**2)*((1+t)**2)*(x_p_i**2) + 2*(2*f_0+g_0)*(z**2)*(1+t)*x-2*g_0*k*(z**2)*((1+t)**2)*(x**2) - (V_0/k)*(np.sqrt(1-(z**2)*((1+t)**2)*(x**2))))     + rho_m_0 * ((1+t)**3)            
+    denominator_zz = 4 * f_0 * (math.exp(-k*y)*z*(1+t) ) - k * math.exp(-k*y) * z * ((1+t)**2) * x * 2 * g_0 
+
+    eq1 = Eq(x_p_i - (numerator_xx)/(denominator_xx), 0)
+    eq2 = Eq(y_p_i - x, 0)
+    eq3 = Eq(z_p_i - (numerator_zz)/(numerator_zz), 0)
+
+    solve((eq1,eq2, eq3), (x_p_i, y_p_i, z_p_i))
+    sol_dict = solve((eq1,eq2,eq3), (x_p_i, y_p_i, z_p_i))
+    
+    x_p_2_i = sol_dict[x_p_i]
+    y_p_1_i = sol_dict[y_p_i]
+    z_p_i   = sol_dict[z_p_i]
+
+    xx    = []
+    xx.append(x_p_2_i)
+    yy    = []
+    yy.append(y_p_1_i)
+    zz    = []
+    zz.append(z_p_i)
+    ttt = []
+    ttt.append(t)
+    for i in range(N_S): 
+        k1 = h * np.array(dxdt_dydt_dzdt(t, x, y, z, xx[i], zz[i]))
+        k2 = h * np.array(dxdt_dydt_dzdt(t + 0.5 * h, x + 0.5 * k1[0], y + 0.5 * k1[1], z + 0.5 * k1[2], xx[i], zz[i]))
+        k3 = h * np.array(dxdt_dydt_dzdt(t + 0.5 * h, x + 0.5 * k2[0], y + 0.5 * k2[1], z + 0.5 * k1[2], xx[i], zz[i]))
+        k4 = h * np.array(dxdt_dydt_dzdt(t + h, x + k3[0], y + k3[1], y + k3[2], xx[i], zz[i]))
+  
+        x = x + (1.0 / 6.0)*(k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0])
+        xx.append(x)
+        y = y + (1.0 / 6.0)*(k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])
+        yy.append(y)
+        z = z + (1.0 / 6.0)*(k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2])
+        zz.append(z)
+        
+        ttt.append(t)
+        t = t + h
+    return xx, yy, zz, ttt
+
+def dxdt_dydt_dzdt(t, x, y, z, x_p_i, z_p_i): 
+    numerator_x   = (z**2) * ((1+t)**2) * z_p_i * x     - 3*(z**2)*(1+t)*x*(1-(z**2)*((1+t)**2)*(x**2))     - (k/V_0) * ((1-(z**2)*((1+t)**2)*(x**2))**(3/2)) * (6*(f_0+3*g_0)*(z**2)-6*g_0*z*z_p_i*(1+t)+V_0)
+    denominator_x = -(z**2)*((1+t)**2)
+    dxdt = numerator_x / denominator_x
+    
+    dydt = x
+    
+    numerator_z   = math.exp(-k*y) * (6*f_0*k*(z**2)*(1+t)*x + V_0/((1-(z**2)*((1+t)**2)*(x**2))**(1/2)))     + k * math.exp(-k*y) * (2*g_0*(z**2)*((1+t)**2)*(x_p_i**2) + 2*(2*f_0+g_0)*(z**2)*(1+t)*x-2*g_0*k*(z**2)*((1+t)**2)*(x**2) - (V_0/k)*((1-(z**2)*((1+t)**2)*(x**2))**(1/2)))     + rho_m_0 * ((1+t)**3)            
+    denominator_z = 4 * f_0 * (math.exp(-k*y)*z*(1+t) ) - k * math.exp(-k*y) * z * ((1+t)**2) * x * 2 * g_0            
+    dzdt = numerator_z / denominator_z
+    
+    Func = (dxdt, dydt, dzdt)
+    return Func
+
+
+kk = []
+X2  = []
+X22 = []
+for i in range(NNN):
+    k = k + (k_f - k_i) / NNN
+    print('We are in step %.0f from %.0f steps.' % (i+1, NNN))
+    kk.append(k)
+
+    Solutions = Runge_Kutta_dxdt_dydt_dzdt(t, x_0, y_0, z_0, h)
+    xxx = Solutions[0]
+    yyy = Solutions[1]
+    zzz = Solutions[2]
+    ttt = Solutions[3]
+    
+    # curve fit
+    popt, _ = curve_fit(fit_function, ttt, zzz)
+    # summarize the parameter values
+    a, b, c, d, e = popt
+    # define a sequence of inputs between the smallest and largest known inputs
+    x_line = np.arange(min(ttt), max(ttt), 1)
+    # calculate the output for the range
+    y_line = fit_function(x_line, a, b, c, d, e)
+    # create a line plot for the mapping function
+    # print('H = %.5f z^4 + %.5f z^3 + %.5f z^2 + %.5f z + %.5f' % (a, b, c, d, e))
+    
+    Integral3 = []
+    for j in range(NNN):
+        Integral2  = quad(H_z_function, 0, r_sh[j])
+        Integral3.append(Integral2[0])
+        
+    D_L = np.array(1+r_sh) * np.array(Integral3)
+    mu_0 = 42.38 - 5 * math.log(h, 10)
+    
+    mu_th = []
+    for g in range(NNN):
+        mu_theo = 5 * math.log(D_L[g], 10) + mu_0
+        mu_th.append(mu_theo)
+    mu_th = np.array(mu_th)
+        
+    X2P = []
+    for l in range(NNN):
+        result = ((mu_obs[l] - mu_th[l]) ** 2) / (mu_obs_error[l]**2)
+        X2P.append(result)
+    X22 = sum(X2P)
+    X2.append(X22)
+
+
+plt.title('z-H')
+# plt.yscale('log')
+plt.plot(ttt, zzz, 'b')
+
+fig = plt.gcf()
+fig.set_size_inches(10, 6)
+plt.savefig("z_H.png", bbox_inches='tight', dpi=300)
+
+# X2 = np.array(X2)
+# print(X2.shape)
+# plt.xlim(5.2, 3.4)
+plt.title('z-phi')
+# plt.yscale('log')
+plt.plot(ttt, yyy, 'b')
+
+fig = plt.gcf()
+fig.set_size_inches(10, 6)
+plt.savefig("z_phi.png", bbox_inches='tight', dpi=300)
+
+plt.grid()
+kk = np.array(kk)
+X2  = np.array(X2)
+# X2 = X2 / max(X2)
+print(max(X2))
+# print(X2.shape)
+
+plt.title('X2_k')
+plt.plot(kk, X2,'b')
+
+fig = plt.gcf()
+fig.set_size_inches(14.2126, 7.99213)
+plt.savefig("X2_k.png", bbox_inches='tight', dpi=300)
+
+plt.grid()
+LX2 = np.exp(-0.5*X2)
+# LX2 = LX2 / max(LX2)
+# print(LX2)
+plt.plot(kk, LX2,'b')
+
+fig = plt.gcf()
+fig.set_size_inches(14.2126, 7.99213)
+plt.savefig("LX2_k.png", bbox_inches='tight', dpi=300)
+
+plt.grid()
+# plt.plot(nn, mu_th[0:NNN-1],'b')
+
+mu_th = np.array(mu_th)
+
+# print(z.shape)
+# print(mu_th.shape)
+# print(mu_obs_error.shape)
+
+# plt.scatter(z,mu_th)
+plt.errorbar(r_sh, mu_obs, yerr=mu_obs_error, fmt='o')
+
+fig = plt.gcf()
+fig.set_size_inches(14.2126, 7.99213)
+plt.savefig("Data.png", bbox_inches='tight', dpi=300)
+
