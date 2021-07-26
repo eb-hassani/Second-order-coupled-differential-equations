@@ -18,32 +18,13 @@ get_ipython().run_line_magic('matplotlib', 'inline')
 # print('Pandas version ' + pd.__version__)
 # print('Matplotlib version ' + matplotlib.__version__)
 
-union2 = pd.read_csv('union2EditedReduced.CSV', encoding = 'utf-8',delimiter=r'\s+', sep=' ')
+union2 = pd.read_csv('union2Edited.CSV', encoding = 'utf-8',delimiter=r'\s+', sep=' ')
 SIName =  union2.iloc[:,0]      # Name of the SuperNova
 r_sh   =  union2.iloc[:,1]      # import red_shift data
 mu_obs =  union2.iloc[:,2]      # import distance module data
 mu_obs_error = union2.iloc[:,3] # import the errors in distance module
 
 NNN = len(r_sh)
-# print(NNN)
-
-### Initial conditions
-k_i = 0.001   # initial k
-k_f = 0.01    # final k
-k = k_i
-V_0        = 1
-f_0        = 1 #V_0 / 1.44
-g_0        = 1
-rho_m_0    = 1 #0.31
-
-t = 0.0      # initial time (t stands for z (redshift))
-h = 0.1      # step-size of runge-kutta
-N_S = 10     # number of steps in runge-kutta
-
-x_0 = 1e-10 # 10**-5     # initial phi
-y_0 = 1e-10 # 1.6115e-3  # initial phi-prime
-z_0 = 0.766965           # initial H
-
 
 # define the objective fit function
 def fit_function(x, a, b, c, d, e):
@@ -67,13 +48,14 @@ def Runge_Kutta_dxdt_dydt_dzdt(t, x, y, z, h):
     eq2 = Eq(y_p_i - x, 0)
     eq3 = Eq(z_p_i - (numerator_zz)/(numerator_zz), 0)
 
-    solve((eq1,eq2, eq3), (x_p_i, y_p_i, z_p_i))
     sol_dict = solve((eq1,eq2,eq3), (x_p_i, y_p_i, z_p_i))
-    
+#     print('sol_dict is:', sol_dict)
+#     print('sol_dict type is:', type(sol_dict))
+
     x_p_2_i = sol_dict[x_p_i]
     y_p_1_i = sol_dict[y_p_i]
     z_p_i   = sol_dict[z_p_i]
-
+    
     xx    = []
     xx.append(x_p_2_i)
     yy    = []
@@ -113,14 +95,34 @@ def dxdt_dydt_dzdt(t, x, y, z, x_p_i, z_p_i):
     Func = (dxdt, dydt, dzdt)
     return Func
 
+### Initial conditions
+k_i =  0.055     # initial k
+k_f =  0.06     # final k
+k = k_i
+V_0        = 0.69 + 0.69 * 1e-10
+rho_m_0    = 0.69
+f_0        = V_0 / 1.38
+g_0        = 1
 
+t = 0.0      # initial time (t stands for z (redshift))
+h = 0.1      # step-size of runge-kutta
+N_S = 10      # number of steps in runge-kutta
+
+# x_0 = 1e-5  # 10**-5     # initial phi
+y_0 = 1e-10 # 1.6115e-3  # initial phi-prime
+z_0 = 0.766965           # initial H
+###################
 kk = []
 X2  = []
 X22 = []
 for i in range(NNN):
     k = k + (k_f - k_i) / NNN
-    print('We are in step %.0f from %.0f steps.' % (i+1, NNN))
+    print('We are in step "%.0f" from  %.0f steps.' % (i+1, NNN))
+    print('In this step "k" is:', k)
+    print('\n')
     kk.append(k)
+
+    x_0 = (1/k) * np.log(V_0/rho_m_0)
 
     Solutions = Runge_Kutta_dxdt_dydt_dzdt(t, x_0, y_0, z_0, h)
     xxx = Solutions[0]
@@ -160,63 +162,49 @@ for i in range(NNN):
     X22 = sum(X2P)
     X2.append(X22)
 
-
+    
+plt.grid()
 plt.title('z-H')
-# plt.yscale('log')
+plt.xlim(-0.05, 1.05)
 plt.plot(ttt, zzz, 'b')
-
 fig = plt.gcf()
 fig.set_size_inches(10, 6)
 plt.savefig("z_H.png", bbox_inches='tight', dpi=300)
 
-# X2 = np.array(X2)
-# print(X2.shape)
-# plt.xlim(5.2, 3.4)
-plt.title('z-phi')
-# plt.yscale('log')
-plt.plot(ttt, yyy, 'b')
 
+plt.grid()
+plt.xlim(-0.05, 1.05)
+plt.title('z-phi')
+plt.plot(ttt, yyy, 'b')
 fig = plt.gcf()
 fig.set_size_inches(10, 6)
 plt.savefig("z_phi.png", bbox_inches='tight', dpi=300)
 
+
 plt.grid()
 kk = np.array(kk)
 X2  = np.array(X2)
-# X2 = X2 / max(X2)
-print(max(X2))
-# print(X2.shape)
-
+X2 = X2 / max(X2)
+index = np.where(X2 == min(X2))
+print('k minimum is:', kk[32])
 plt.title('X2_k')
 plt.plot(kk, X2,'b')
-
 fig = plt.gcf()
 fig.set_size_inches(14.2126, 7.99213)
 plt.savefig("X2_k.png", bbox_inches='tight', dpi=300)
 
+
 plt.grid()
 LX2 = np.exp(-0.5*X2)
-# LX2 = LX2 / max(LX2)
-# print(LX2)
 plt.plot(kk, LX2,'b')
-
 fig = plt.gcf()
 fig.set_size_inches(14.2126, 7.99213)
 plt.savefig("LX2_k.png", bbox_inches='tight', dpi=300)
 
+
 plt.grid()
-# plt.plot(nn, mu_th[0:NNN-1],'b')
-
 mu_th = np.array(mu_th)
-
-# print(z.shape)
-# print(mu_th.shape)
-# print(mu_obs_error.shape)
-
-# plt.scatter(z,mu_th)
 plt.errorbar(r_sh, mu_obs, yerr=mu_obs_error, fmt='o')
-
 fig = plt.gcf()
 fig.set_size_inches(14.2126, 7.99213)
 plt.savefig("Data.png", bbox_inches='tight', dpi=300)
-
